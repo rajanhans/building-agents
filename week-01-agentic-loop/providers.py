@@ -51,6 +51,7 @@ class Step:
     tool_calls: list[ToolCall] = field(default_factory=list)
     input_tokens: int = 0
     output_tokens: int = 0
+    cached_tokens: int = 0  # part of input_tokens served from the provider's prompt cache (cheaper)
 
 
 # ---------------------------------------------------------------- OpenAI Responses API
@@ -59,18 +60,19 @@ class ResponsesConversation:
     """OpenAI's Responses API. Ollama (>= 0.13.3) serves the same API locally."""
 
     def __init__(self, task: str, *, model: str, provider: str = "openai", tools: list[dict] | None = None,
-                 system: str = "", effort: str | None = None, client: Any = None):
+                 system: str = "", effort: str | None = None, client: Any = None, extra: dict | None = None):
         if client is None:
             from openai import OpenAI
             client = OpenAI(base_url=OLLAMA_BASE_URL, api_key="ollama") if provider == "ollama" else OpenAI()
         self.client, self.model, self.provider, self.system, self.effort = client, model, provider, system, effort
+        self.extra = dict(extra or {})   # more request options, e.g. {"parallel_tool_calls": False}
         # strict=False: otherwise the API may silently make every field required (our defaults would break).
         self.tools = [{"type": "function", "name": t["name"], "description": t["description"],
                        "parameters": t["input_schema"], "strict": False} for t in (tools or [])]
         self.input: list[Any] = [{"role": "user", "content": task}]
 
     def _extra(self) -> dict:
-        return {"reasoning": {"effort": self.effort}} if self.effort else {}
+        return {**({"reasoning": {"effort": self.effort}} if self.effort else {}), **self.extra}
 
     def ask(self) -> Step:
         r = self.client.responses.create(model=self.model, instructions=self.system, input=self.input,
@@ -82,8 +84,9 @@ class ResponsesConversation:
         stop = ("max_tokens" if r.status == "incomplete" else "refusal" if refused
                 else "tool_use" if calls else "end_turn")
         usage = r.usage
+        cached = getattr(getattr(usage, "input_tokens_details", None), "cached_tokens", 0) or 0
         return Step(stop, (r.output_text or "").strip(), calls,
-                    getattr(usage, "input_tokens", 0) or 0, getattr(usage, "output_tokens", 0) or 0)
+                    getattr(usage, "input_tokens", 0) or 0, getattr(usage, "output_tokens", 0) or 0, cached)
 
     def add_tool_results(self, results: list[ToolResult]) -> None:
         for x in results:   # no is_error field in this format: say it in the text
@@ -95,7 +98,7 @@ class ResponsesConversation:
         r = self.client.responses.create(
             model=self.model, instructions=self.system, input=self.input, max_output_tokens=2000,
             text={"format": {"type": "json_schema", "name": "result", "schema": schema, "strict": True}},
-            **self._extra())
+            **({"reasoning": {"effort": self.effort}} if self.effort else {}))
         return json.loads(r.output_text)
 
 
@@ -108,20 +111,21 @@ class AnthropicConversation:
     provider = "anthropic"
 
     def __init__(self, task: str, *, model: str, tools: list[dict] | None = None, system: str = "",
-                 effort: str | None = None, client: Any = None):
+                 effort: str | None = None, client: Any = None, extra: dict | None = None):
         if client is None:
             import anthropic
             client = anthropic.Anthropic()
         self.client, self.model, self.system, self.effort = client, model, system, effort
+        self.extra = dict(extra or {})
         self.tools = list(tools or [])
         self.messages: list[dict] = [{"role": "user", "content": task}]
 
     def _extra(self) -> dict:
         if self.model not in CLAUDE_EFFORT_MODELS:
-            return {}
+            return dict(self.extra)
         # fallbacks: if a safety classifier declines, the API retries on a fallback model.
         return {"output_config": {"effort": self.effort or "medium"},
-                "betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
+                "betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default", **self.extra}
 
     def ask(self) -> Step:
         r = self.client.beta.messages.create(model=self.model, max_tokens=MAX_TOKENS, system=self.system,
@@ -130,7 +134,8 @@ class AnthropicConversation:
         return Step(str(r.stop_reason),
                     "\n".join(b.text for b in r.content if b.type == "text").strip(),
                     [ToolCall(b.id, b.name, b.input) for b in r.content if b.type == "tool_use"],
-                    r.usage.input_tokens, r.usage.output_tokens)
+                    r.usage.input_tokens, r.usage.output_tokens,
+                    getattr(r.usage, "cache_read_input_tokens", 0) or 0)
 
     def add_tool_results(self, results: list[ToolResult]) -> None:
         self.messages.append({"role": "user", "content": [   # all results in ONE message
@@ -147,12 +152,14 @@ class AnthropicConversation:
 # ---------------------------------------------------------------- factory + availability
 
 def open_conversation(provider: str, model: str, task: str, *, tools: list[dict] | None = None,
-                      system: str = "", effort: str | None = None, client: Any = None):
+                      system: str = "", effort: str | None = None, client: Any = None,
+                      extra: dict | None = None):
     if provider == "anthropic":
-        return AnthropicConversation(task, model=model, tools=tools, system=system, effort=effort, client=client)
+        return AnthropicConversation(task, model=model, tools=tools, system=system, effort=effort,
+                                     client=client, extra=extra)
     if provider in ("openai", "ollama"):
         return ResponsesConversation(task, model=model, provider=provider, tools=tools, system=system,
-                                     effort=effort, client=client)
+                                     effort=effort, client=client, extra=extra)
     raise ValueError(f"Unknown provider '{provider}' (use 'openai', 'anthropic' or 'ollama')")
 
 

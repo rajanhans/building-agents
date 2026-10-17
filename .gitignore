@@ -6,3 +6,5 @@ __pycache__/
 life.db
 .DS_Store
 week-*/data/
+desk_files/
+memories/

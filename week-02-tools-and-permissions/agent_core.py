@@ -31,21 +31,28 @@ class FatalToolError(Exception):
 
 # ---------------------------------------------------------------- tools
 
-def tool(fn: Callable, *, description: str, input_model: type[BaseModel], effect: str = READ) -> dict:
+def tool(fn: Callable, *, description: str, input_model: type[BaseModel], effect: str = READ,
+         name: str | None = None) -> dict:
     """Build a registry entry. The Pydantic model is the single source of truth:
-    the model sees its JSON schema, and our code validates every call against it."""
+    the model sees its JSON schema, and our code validates every call against it.
+    The tool's name (what the model calls) is the function's name, unless you pass `name`."""
     def run(**kwargs: Any) -> str:
         args = input_model.model_validate(kwargs)       # raises ValidationError on bad input
         return str(fn(**dict(args)))
     return {
         "fn": run,
         "effect": effect,
-        "schema": {"name": fn.__name__, "description": description,
+        "schema": {"name": name or fn.__name__, "description": description,
                    "input_schema": input_model.model_json_schema()},
     }
 
 
 def tool_schemas(tools: dict) -> list[dict]:
+    for key, entry in tools.items():          # the model calls a tool by the schema's name, we look it up by key
+        if entry["schema"]["name"] != key:
+            raise ValueError(f"Tool registry key '{key}' doesn't match the tool's name "
+                             f"'{entry['schema']['name']}', which is what the model will call. "
+                             f"Use the same name, e.g. tool(..., name='{key}').")
     return [t["schema"] for t in tools.values()]
 
 

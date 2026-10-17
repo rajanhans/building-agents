@@ -15,7 +15,7 @@ To freeze it, e.g. for a recorded demo, set `LIFE_TODAY=2026-10-12` in `.env`.
 |---|---|---|---|
 | 1 | The agentic loop | Answer questions over calendar, task and note files with exact arithmetic; route tasks to the right model | [`week-01-agentic-loop/`](week-01-agentic-loop/) |
 | 2 | Tools & permissions | Read and **change** the calendar and tasks through validated tools; writes need approval (with a dry-run diff) | [`week-02-tools-and-permissions/`](week-02-tools-and-permissions/) |
-| 3 | Context management | Handle months of history and long chats without the context overflowing or costs exploding | *coming* |
+| 3 | Context management | Keep the desk tidy: measure it, clear old tool results, compact long chats, remember across sessions, cache the stable part | [`week-03-context-management/`](week-03-context-management/) |
 | 4 | Planning | "Plan my week around the capstone demo and the interview": time blocks, priorities, buffers, then check the plan | *coming* |
 | 5 | Memory | Remember preferences, recurring commitments, goals and people | *coming* |
 | 6 | Multi-agent | Orchestrator + inbox triager + scheduler + reviewer that checks the plan against the rules | *coming* |
@@ -24,6 +24,8 @@ To freeze it, e.g. for a recorded demo, set `LIFE_TODAY=2026-10-12` in `.env`.
 
 Recurring themes: **privacy** (sensitive tasks can be routed to a local model), **side effects** (allow / ask / deny),
 and **untrusted input** (an email that says "cancel all my meetings" is prompt injection, not an instruction).
+
+**Students: do [SETUP.md](SETUP.md) before the first session** and run `python check_setup.py`.
 
 ## Setup in VS Code (once)
 

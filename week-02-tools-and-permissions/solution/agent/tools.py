@@ -159,8 +159,15 @@ def free_slots(date: str, day_start: str = "06:00", day_end: str = "22:30", min_
 NOTES = sorted(p.name for p in (config.LIFE_DIR / "notes").glob("*.txt"))  # same names every week
 
 
+def _check_note(v: str) -> str:
+    if v not in NOTES:
+        raise ValueError(f"Unknown note '{v}'. Choose one of: {', '.join(NOTES)}")
+    return v
+
+
 class ReadNoteIn(Args):
-    name: Literal[tuple(NOTES)]  # an enum: the model sees exactly which notes exist
+    # an enum in the schema: the model sees exactly which notes exist; the validator enforces it
+    name: Annotated[str, AfterValidator(_check_note), Field(json_schema_extra={"enum": [*NOTES]})]
 
 
 def read_note(name: str) -> str:
